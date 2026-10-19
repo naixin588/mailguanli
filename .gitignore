@@ -1,0 +1,18 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+
+# 虚拟环境
+.venv/
+venv/
+
+# 凭据缓存（含加密的账号密码/token）
+alias_sessions.json
+
+# 运行时产物
+*.log
+.DS_Store

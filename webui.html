@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>mail.com 邮件管理台 · WebUI</title>
+<style>
+:root {
+  --blue: #0b5cad;
+  --blue-dark: #084b91;
+  --bg: #f5f7fb;
+  --card: #ffffff;
+  --border: #d7dde5;
+  --text: #1f2937;
+  --muted: #596775;
+  --ok: #16a34a;
+  --err: #dc2626;
+  --warn: #d97706;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  font-family: "Microsoft YaHei UI", "Segoe UI", Arial, sans-serif;
+  color: var(--text); background: var(--bg); font-size: 14px;
+}
+header {
+  background: var(--blue); color: #fff; padding: 12px 20px;
+  display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+}
+header h1 { font-size: 19px; margin: 0; font-weight: 650; }
+header .sub { color: #dbeafe; font-size: 12px; }
+header .spacer { flex: 1; }
+.btn {
+  border: 1px solid var(--border); background: var(--card); color: var(--text);
+  padding: 7px 14px; border-radius: 6px; cursor: pointer; font-size: 13px;
+}
+.btn:hover { border-color: var(--blue); color: var(--blue); }
+.btn.primary { background: var(--blue); border-color: var(--blue); color: #fff; }
+.btn.primary:hover { background: var(--blue-dark); }
+.btn.danger { color: var(--err); }
+.btn.danger:hover { border-color: var(--err); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.toggle { display: flex; align-items: center; gap: 6px; color: #fff; font-size: 13px; cursor: pointer; }
+.layout { display: flex; height: calc(100vh - 58px); }
+.panel { background: var(--card); border: 1px solid var(--border); border-radius: 8px; margin: 10px; padding: 12px; display: flex; flex-direction: column; overflow: hidden; }
+.left { width: 380px; min-width: 320px; }
+.right { flex: 1; }
+.panel h2 { font-size: 14px; margin: 0 0 10px; color: #334155; }
+textarea {
+  width: 100%; min-height: 84px; resize: vertical; border: 1px solid var(--border);
+  border-radius: 6px; padding: 8px; font-family: "Cascadia Mono", Consolas, monospace; font-size: 12px;
+}
+.row { display: flex; gap: 8px; margin: 8px 0; flex-wrap: wrap; align-items: center; }
+table { width: 100%; border-collapse: collapse; font-size: 13px; }
+th, td { text-align: left; padding: 7px 8px; border-bottom: 1px solid var(--border); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+th { color: var(--muted); font-weight: 600; background: #f8fafc; position: sticky; top: 0; }
+tr.clickable { cursor: pointer; }
+tr.clickable:hover td { background: #eef4fb; }
+tr.active td { background: #e0edfb; }
+.scroll { overflow-y: auto; flex: 1; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 11px; }
+.badge.ok { background: #dcfce7; color: var(--ok); }
+.badge.err { background: #fee2e2; color: var(--err); }
+.badge.wait { background: #fef3c7; color: var(--warn); }
+.muted { color: var(--muted); }
+.search-box { border: 1px solid var(--border); border-radius: 8px; padding: 10px; margin: 10px; background: var(--card); }
+.search-box h2 { margin: 0 0 8px; font-size: 14px; color: #334155; }
+.search-box input { border: 1px solid var(--border); border-radius: 6px; padding: 6px 8px; font-size: 12px; min-width: 120px; }
+.result { margin: 6px 0; padding: 8px; border-radius: 6px; background: #f1f5f9; font-family: "Cascadia Mono", Consolas, monospace; font-size: 13px; word-break: break-all; }
+iframe.preview { width: 100%; flex: 1; border: 1px solid var(--border); border-radius: 6px; background: #fff; }
+.empty { color: var(--muted); text-align: center; padding: 30px; }
+label.field { font-size: 12px; color: var(--muted); display: flex; flex-direction: column; gap: 3px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>mail.com 邮件管理台 <span class="sub">WebUI</span></h1>
+  <span class="sub" id="apiStatus">连接中…</span>
+  <div class="spacer"></div>
+  <label class="toggle"><input type="checkbox" id="autoFetch"> 每 5 秒自动拉取</label>
+  <button class="btn" id="saveState">保存会话</button>
+</header>
+
+<div class="search-box">
+  <h2>验证码查询（缓存 / 实时）</h2>
+  <div class="row">
+    <label class="field">主账号<input id="sEmail" placeholder="xxx@mail.com"></label>
+    <label class="field">收件别名(可选)<input id="sTo" placeholder="别名@dr.com"></label>
+    <label class="field">关键词<input id="sKeyword" placeholder="ChatGPT"></label>
+    <label class="field">正则<input id="sRegex" placeholder="\d{6}" value="\d{6}"></label>
+    <label class="field">实时密码(可选)<input id="sPassword" type="password" placeholder="仅实时查询填"></label>
+    <button class="btn primary" id="searchCached">缓存查询</button>
+    <button class="btn" id="searchLive">实时查询</button>
+  </div>
+  <div class="result" id="searchResult">结果会显示在这里</div>
+</div>
+
+<div class="search-box">
+  <h2>别名批量管理（使用左侧已导入的账号，无需重新登录）</h2>
+  <div class="row">
+    <label class="field">选择账号<select id="aEmail" style="min-width:220px;padding:6px"></select></label>
+    <label class="field">域名<select id="aDomain" style="min-width:150px;padding:6px"></select></label>
+    <label class="field">数量<input id="aCount" type="number" value="3" min="1" max="10" style="width:70px"></label>
+    <button class="btn" id="aliasList">列出别名</button>
+    <button class="btn primary" id="aliasCreate">批量创建</button>
+    <button class="btn danger" id="aliasDelete">删除选中</button>
+    <button class="btn" id="aliasExport">导出全部别名</button>
+    <button class="btn primary" id="aliasBatchCreate">给所有账号批量创建</button>
+  </div>
+  <div class="result" id="aliasResult">选择账号后点「列出别名」即可查看，无需再输密码。创建别名将生成随机 7 字符名。</div>
+</div>
+
+<div class="layout">
+  <div class="panel left">
+    <h2>批量导入（邮箱----密码，每行一个）</h2>
+    <textarea id="accountsText" placeholder="example01@mail.com----password123&#10;example02@mail.com----password456"></textarea>
+    <div class="row">
+      <button class="btn primary" id="importBtn">导入</button>
+      <button class="btn" id="fetchAllBtn">全部收取</button>
+      <button class="btn" id="fetchSelBtn">收取选中</button>
+      <button class="btn danger" id="deleteSelBtn">删除选中</button>
+    </div>
+    <h2>账号列表</h2>
+    <div class="scroll">
+      <table>
+        <thead><tr><th style="width:24px"><input type="checkbox" id="checkAll"></th><th>账号</th><th>状态</th><th>邮件</th><th>更新</th></tr></thead>
+        <tbody id="accountRows"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="panel right">
+    <h2 id="msgTitle">收件箱（请先选择账号）</h2>
+    <div class="scroll" style="max-height:42%">
+      <table>
+        <thead><tr><th style="width:150px">时间</th><th style="width:170px">发件人</th><th style="width:170px">收件人</th><th>主题</th></tr></thead>
+        <tbody id="msgRows"></tbody>
+      </table>
+      <div class="empty" id="msgEmpty">请选择左侧账号查看邮件</div>
+    </div>
+    <h2>邮件预览 <button class="btn" id="debugHeader" style="float:right;padding:3px 10px">调试头部（看原始收件人字段）</button></h2>
+    <iframe class="preview" id="preview" srcdoc="<html><body style='font-family:Microsoft YaHei UI;color:#64748b;padding:22px;'>选择一封邮件查看预览</body></html>"></iframe>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let selectedAccount = null;
+let selectedMessageIndex = null;
+
+async function api(method, path, body) {
+  const opt = { method, headers: {} };
+  if (body !== undefined) { opt.headers['Content-Type'] = 'application/json'; opt.body = JSON.stringify(body); }
+  const res = await fetch(path, opt);
+  const ct = res.headers.get('content-type') || '';
+  const data = ct.includes('json') ? await res.json() : await res.text();
+  if (!res.ok) throw new Error((data && data.error) ? data.error : ('HTTP ' + res.status));
+  return data;
+}
+
+function esc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+function statusBadge(acc) {
+  if (acc.active) return '<span class="badge wait">收取中</span>';
+  if (acc.ok) return '<span class="badge ok">完成</span>';
+  if (acc.error) return '<span class="badge err" title="' + esc(acc.error) + '">失败</span>';
+  return '<span class="badge" style="background:#e2e8f0">待收取</span>';
+}
+
+async function refreshStatus() {
+  try {
+    const st = await api('GET', '/api/status');
+    $('apiStatus').textContent = '在线 · ' + st.accounts.length + ' 个账号';
+    $('autoFetch').checked = st.auto_fetch;
+    renderAccounts(st.accounts);
+  } catch (e) {
+    $('apiStatus').textContent = '离线';
+  }
+}
+
+function renderAccounts(accounts) {
+  const tbody = $('accountRows');
+  tbody.innerHTML = accounts.map(a => {
+    const selected = a.address === selectedAccount ? ' class="active"' : '';
+    return `<tr class="clickable"${selected} data-address="${esc(a.address)}">
+      <td><input type="checkbox" class="accChk" data-address="${esc(a.address)}"></td>
+      <td title="${esc(a.address)}">${esc(a.address)}</td>
+      <td>${statusBadge(a)}</td>
+      <td>${a.ok ? a.total : '-'}</td>
+      <td class="muted" style="font-size:11px">${esc(a.updated_at || '')}</td>
+    </tr>`;
+  }).join('');
+  tbody.querySelectorAll('tr.clickable').forEach(tr => {
+    tr.addEventListener('click', (e) => {
+      if (e.target.classList.contains('accChk')) return;
+      selectAccount(tr.dataset.address);
+    });
+  });
+  populateAliasSelect(accounts);
+}
+
+function populateAliasSelect(accounts) {
+  const sel = $('aEmail');
+  const prev = sel.value;
+  const addrs = accounts.map(a => a.address);
+  sel.innerHTML = addrs.map(a => `<option value="${esc(a)}">${esc(a)}</option>`).join('');
+  if (addrs.includes(prev)) sel.value = prev;
+  else if (selectedAccount && addrs.includes(selectedAccount)) sel.value = selectedAccount;
+  else if (addrs.length) sel.value = addrs[0];
+}
+
+async function selectAccount(address) {
+  selectedAccount = address;
+  $('msgTitle').textContent = '收件箱 · ' + address;
+  if ($('aEmail').value !== address && [...$('aEmail').options].some(o => o.value === address)) {
+    $('aEmail').value = address;
+  }
+  try {
+    const data = await api('GET', '/api/messages?email=' + encodeURIComponent(address));
+    renderMessages(data);
+  } catch (e) {
+    $('msgEmpty').textContent = '加载失败：' + e.message;
+  }
+  refreshStatus();
+}
+
+function renderMessages(data) {
+  const tbody = $('msgRows');
+  $('msgEmpty').style.display = data.messages.length ? 'none' : 'block';
+  $('msgEmpty').textContent = data.ok ? '收件箱为空。' : '错误：' + (data.error || '未知');
+  tbody.innerHTML = data.messages.map(m => {
+    const idx = m.index;
+    const selected = idx === selectedMessageIndex ? ' class="active"' : '';
+    return `<tr class="clickable"${selected} data-index="${idx}">
+      <td>${esc(m.date)}</td><td title="${esc(m.from)}">${esc(m.from)}</td>
+      <td title="${esc(m.to)}">${esc(m.to || '')}</td><td title="${esc(m.subject)}">${esc(m.subject)}</td>
+    </tr>`;
+  }).join('');
+  tbody.querySelectorAll('tr.clickable').forEach(tr => {
+    tr.addEventListener('click', () => showPreview(tr.dataset.index));
+  });
+}
+
+async function showPreview(index) {
+  selectedMessageIndex = index;
+  try {
+    const html = await api('GET', '/api/preview?email=' + encodeURIComponent(selectedAccount) + '&index=' + index);
+    $('preview').srcdoc = html;
+  } catch (e) {
+    $('preview').srcdoc = '<html><body>预览失败：' + esc(e.message) + '</body></html>';
+  }
+}
+
+function selectedAddresses() {
+  return [...document.querySelectorAll('.accChk:checked')].map(c => c.dataset.address);
+}
+
+// 事件绑定
+$('importBtn').addEventListener('click', async () => {
+  const text = $('accountsText').value;
+  if (!text.trim()) return alert('请先粘贴账号');
+  try {
+    const r = await api('POST', '/api/accounts', { text });
+    alert('导入成功：' + r.imported + ' 个（当前共 ' + r.total + ' 个）');
+    refreshStatus();
+  } catch (e) { alert('导入失败：' + e.message); }
+});
+
+async function doFetch(addresses) {
+  $('fetchAllBtn').disabled = $('fetchSelBtn').disabled = true;
+  try {
+    const r = await api('POST', '/api/fetch', { addresses: addresses || null, max_messages: 0, max_workers: 5 });
+    const fails = (r.results || []).filter(x => !x.ok).length;
+    alert('收取完成：' + (r.results || []).length + ' 个账号，失败 ' + fails + ' 个');
+    refreshStatus();
+    if (selectedAccount) selectAccount(selectedAccount);
+  } catch (e) { alert('收取失败：' + e.message); }
+  finally { $('fetchAllBtn').disabled = $('fetchSelBtn').disabled = false; }
+}
+
+$('fetchAllBtn').addEventListener('click', () => doFetch(null));
+$('fetchSelBtn').addEventListener('click', () => {
+  const sel = selectedAddresses();
+  if (!sel.length) return alert('请先勾选账号');
+  doFetch(sel);
+});
+
+$('deleteSelBtn').addEventListener('click', async () => {
+  const sel = selectedAddresses();
+  if (!sel.length) return alert('请先勾选要删除的账号');
+  if (!confirm('确定删除 ' + sel.length + ' 个账号？')) return;
+  await api('DELETE', '/api/accounts', { addresses: sel });
+  if (sel.includes(selectedAccount)) selectedAccount = null;
+  refreshStatus();
+});
+
+$('checkAll').addEventListener('change', (e) => {
+  document.querySelectorAll('.accChk').forEach(c => c.checked = e.target.checked);
+});
+
+$('autoFetch').addEventListener('change', async (e) => {
+  await api('POST', '/api/auto-fetch', { enabled: e.target.checked });
+  refreshStatus();
+});
+
+$('saveState').addEventListener('click', async () => {
+  const r = await api('POST', '/api/state/save');
+  alert('已保存：' + r.saved_at);
+});
+
+async function doSearch(live) {
+  const params = new URLSearchParams({
+    email: $('sEmail').value, keyword: $('sKeyword').value, regex: $('sRegex').value,
+  });
+  if ($('sTo').value) params.set('to', $('sTo').value);
+  if (live) params.set('password', $('sPassword').value);
+  const path = live ? '/search-mail-live?' : '/search-mail?';
+  const result = await api('GET', path + params.toString());
+  $('searchResult').textContent = result;
+}
+
+$('searchCached').addEventListener('click', () => doSearch(false));
+$('searchLive').addEventListener('click', () => doSearch(true));
+
+// 别名管理
+let currentAliases = [];
+
+function aliasCreds() {
+  const email = $('aEmail').value;
+  if (!email) { alert('请先在左侧导入并选择账号'); return null; }
+  return { email };
+}
+
+function renderAliases(aliases, total, limit) {
+  currentAliases = aliases;
+  const lim = limit || 10;
+  const tot = (total !== undefined) ? total : aliases.length;
+  const remain = Math.max(0, lim - tot);
+  const head = `已用 ${tot}/${lim}，剩余 ${remain} 个名额`;
+  if (!aliases.length) { $('aliasResult').textContent = head + '，该账号下没有检测到别名。'; return; }
+  $('aliasResult').innerHTML = head + '：<br>' +
+    aliases.map(a => '<label style="margin-right:14px;font-family:monospace"><input type="checkbox" class="aliasChk" value="' + esc(a) + '"> ' + esc(a) + '</label>').join('<br>');
+}
+
+$('aliasList').addEventListener('click', async () => {
+  const c = aliasCreds(); if (!c) return;
+  $('aliasResult').textContent = '登录并读取别名中…';
+  try {
+    const r = await api('POST', '/api/alias/list', c);
+    renderAliases(r.aliases || [], r.total, r.limit);
+  } catch (e) { $('aliasResult').textContent = '失败：' + e.message; }
+});
+
+$('aliasCreate').addEventListener('click', async () => {
+  const c = aliasCreds(); if (!c) return;
+  const count = parseInt($('aCount').value || '3');
+  const domain = $('aDomain').value || 'mail.com';
+  if (!confirm('将为该账号创建 ' + count + ' 个随机 7 字符别名（' + domain + ' 域名），确认？')) return;
+  $('aliasResult').textContent = '批量创建中…';
+  try {
+    const r = await api('POST', '/api/alias/create', { ...c, count, base: '', domain });
+    $('aliasResult').textContent = '已提交创建：\n' + r.created.map(x => x.full_address + ' -> HTTP ' + x.status).join('\n');
+    $('aliasList').click();
+  } catch (e) { $('aliasResult').textContent = '失败：' + e.message; }
+});
+
+$('aliasDelete').addEventListener('click', async () => {
+  const c = aliasCreds(); if (!c) return;
+  const sel = [...document.querySelectorAll('.aliasChk:checked')].map(x => x.value);
+  if (!sel.length) return alert('请先勾选要删除的别名');
+  if (!confirm('确定删除 ' + sel.length + ' 个别名？\n' + sel.join('\n'))) return;
+  $('aliasResult').textContent = '删除中…';
+  try {
+    const r = await api('POST', '/api/alias/delete', { ...c, addresses: sel });
+    $('aliasResult').textContent = '已提交删除：\n' + r.deleted.map(x => x.address + ' -> HTTP ' + x.status).join('\n');
+    $('aliasList').click();
+  } catch (e) { $('aliasResult').textContent = '失败：' + e.message; }
+});
+
+$('aliasExport').addEventListener('click', () => {
+  $('aliasResult').textContent = '正在导出所有已导入账号的别名…';
+  window.location.href = '/api/alias/export';
+});
+
+$('aliasBatchCreate').addEventListener('click', async () => {
+  // 优先用左侧勾选的账号，没勾选则用全部已导入账号
+  const sel = selectedAddresses();
+  const count = parseInt($('aCount').value || '3');
+  const domain = $('aDomain').value || 'mail.com';
+  const scope = sel.length ? sel.length + ' 个勾选账号' : '所有已导入账号';
+  if (!confirm('将为 ' + scope + ' 各创建 ' + count + ' 个随机 7 字符别名（' + domain + ' 域名），确认？')) return;
+  $('aliasResult').textContent = '批量创建中，请稍候（账号多时较慢）…';
+  try {
+    const r = await api('POST', '/api/alias/create-batch', { accounts: sel.length ? sel : null, count, domain, base: '' });
+    const lines = ['== 批量创建结果 =='];
+    (r.results || []).forEach(x => {
+      lines.push('账号 ' + x.account + '：');
+      (x.created || []).forEach(c => lines.push('  ' + c.full_address + (c.status === 201 ? ' ✓' : ' ✗ ' + (c.error || c.status))));
+    });
+    (r.errors || []).forEach(e => lines.push('✗ ' + e.account + ': ' + e.error));
+    $('aliasResult').textContent = lines.join('\n');
+  } catch (e) { $('aliasResult').textContent = '失败：' + e.message; }
+});
+
+// 调试头部
+$('debugHeader').addEventListener('click', async () => {
+  if (!selectedAccount || !selectedMessageIndex) return alert('请先在左侧选择账号、再点击一封邮件');
+  const d = await api('GET', '/api/message-debug?email=' + encodeURIComponent(selectedAccount) + '&index=' + selectedMessageIndex);
+  const lines = ['from    : ' + d.from, 'to      : ' + d.to, 'date    : ' + d.date, 'subject : ' + d.subject, '', '--- 详情页头部 tokens（前80个）---'];
+  (d.tokens || []).forEach((t, i) => lines.push(i + ': ' + t));
+  $('searchResult').textContent = '【邮件头部调试】\n' + lines.join('\n');
+});
+
+// 域名下拉（从后端 /api/alias/domains 拉取，默认 mail.com）
+async function populateDomainSelect() {
+  try {
+    const r = await api('GET', '/api/alias/domains');
+    const domains = r.domains || ['mail.com'];
+    const sel = $('aDomain');
+    sel.innerHTML = domains.map(d => `<option value="${esc(d)}">${esc(d)}</option>`).join('');
+    sel.value = domains.includes('mail.com') ? 'mail.com' : domains[0];
+  } catch (e) {
+    $('aDomain').innerHTML = '<option value="mail.com">mail.com</option>';
+  }
+}
+
+// 启动
+populateDomainSelect();
+refreshStatus();
+setInterval(refreshStatus, 2000);
+</script>
+</body>
+</html>
